@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/posener/complete"
 )
 
@@ -59,6 +61,20 @@ type CommandHelpTemplate interface {
 	//   * ".Subcommands"
 	//
 	HelpTemplate() string
+}
+
+// CommandV2 extends Command with context-aware execution. Implement this
+// interface instead of (or in addition to) Command when the command needs
+// to respect cancellation signals or deadlines. The CLI will call
+// RunContext when the command implements CommandV2, falling back to Run
+// for plain Command implementations.
+type CommandV2 interface {
+	Command
+
+	// RunContext is like Run but receives a context that carries cancellation
+	// signals and deadlines. Commands should respect ctx.Done() to support
+	// clean shutdown (e.g. on SIGINT).
+	RunContext(ctx context.Context, args []string) int
 }
 
 // CommandFactory is a type of function that is a factory for commands.

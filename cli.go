@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -139,6 +140,7 @@ type CLI struct {
 	subcommand     string
 	subcommandArgs []string
 	topFlags       []string
+	helpFuncMap    template.FuncMap
 
 	// These are true when special global flags are set. We can/should
 	// probably use a bitset for this one day.
@@ -174,7 +176,15 @@ func (c *CLI) IsVersion() bool {
 }
 
 // Run runs the actual CLI based on the arguments given.
+// It is equivalent to RunContext(context.Background()).
 func (c *CLI) Run() (int, error) {
+	return c.RunContext(context.Background())
+}
+
+// RunContext runs the CLI like Run, but passes ctx to any command that
+// implements CommandV2. Commands that only implement Command receive the
+// same behaviour as before.
+func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	c.once.Do(c.init)
 
 	// If this is a autocompletion request, satisfy it. This must be called
@@ -259,7 +269,14 @@ func (c *CLI) Run() (int, error) {
 		return 1, nil
 	}
 
-	code := command.Run(c.SubcommandArgs())
+	// Dispatch to the command. Prefer CommandV2.RunContext when available so
+	// that context cancellation and deadlines are propagated.
+	var code int
+	if cv2, ok := command.(CommandV2); ok {
+		code = cv2.RunContext(ctx, c.SubcommandArgs())
+	} else {
+		code = command.Run(c.SubcommandArgs())
+	}
 	if code == RunResultHelp {
 		// Requesting help
 		c.commandHelp(c.ErrorWriter, command)
@@ -380,6 +397,10 @@ func (c *CLI) init() {
 			c.commandTree.Insert(k, f)
 		}
 	}
+
+	// Cache the sprig template function map once so commandHelp doesn't
+	// rebuild it on every --help invocation.
+	c.helpFuncMap = sprig.TxtFuncMap()
 
 	// Setup autocomplete if we have it enabled. We have to do this after
 	// the command tree is setup so we can use the radix tree to easily find
@@ -514,7 +535,7 @@ func (c *CLI) commandHelp(out io.Writer, command Command) {
 	}
 
 	// Parse it
-	t, err := template.New("root").Funcs(sprig.TxtFuncMap()).Parse(tpl)
+	t, err := template.New("root").Funcs(c.helpFuncMap).Parse(tpl)
 	if err != nil {
 		t = template.Must(template.New("root").Parse(fmt.Sprintf(
 			"Internal error! Failed to parse command help template: %s\n", err)))

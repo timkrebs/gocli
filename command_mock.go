@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/posener/complete"
 )
 
@@ -48,6 +50,26 @@ func (c *MockCommandAutocomplete) AutocompleteArgs() complete.Predictor {
 
 func (c *MockCommandAutocomplete) AutocompleteFlags() complete.Flags {
 	return c.AutocompleteFlagsValue
+}
+
+// MockCommandV2 is an implementation of CommandV2 for tests.
+type MockCommandV2 struct {
+	MockCommand
+
+	// RunContextResult is the exit code RunContext returns.
+	RunContextResult int
+
+	// Set by the command
+	RunContextCalled bool
+	RunContextArgs   []string
+	RunContextCtx    context.Context
+}
+
+func (c *MockCommandV2) RunContext(ctx context.Context, args []string) int {
+	c.RunContextCalled = true
+	c.RunContextCtx = ctx
+	c.RunContextArgs = args
+	return c.RunContextResult
 }
 
 // MockCommandHelpTemplate is an implementation of CommandHelpTemplate.

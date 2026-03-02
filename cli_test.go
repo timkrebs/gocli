@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -108,6 +109,70 @@ func TestCLIRun(t *testing.T) {
 
 	if !reflect.DeepEqual(command.RunArgs, []string{"-bar", "-baz"}) {
 		t.Fatalf("bad args: %#v", command.RunArgs)
+	}
+}
+
+// TestCLIRunContext verifies that RunContext behaves identically to Run for a
+// plain Command (one that does not implement CommandV2).
+func TestCLIRunContext(t *testing.T) {
+	command := new(MockCommand)
+	cli := &CLI{
+		Args: []string{"foo", "-bar", "-baz"},
+		Commands: map[string]CommandFactory{
+			"foo": func() (Command, error) {
+				return command, nil
+			},
+		},
+	}
+
+	exitCode, err := cli.RunContext(context.Background())
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	if exitCode != command.RunResult {
+		t.Fatalf("bad exit code: %d", exitCode)
+	}
+	if !command.RunCalled {
+		t.Fatalf("Run should have been called on plain Command")
+	}
+	if !reflect.DeepEqual(command.RunArgs, []string{"-bar", "-baz"}) {
+		t.Fatalf("bad args: %#v", command.RunArgs)
+	}
+}
+
+// TestCLIRunContext_commandV2 verifies that RunContext dispatches to
+// CommandV2.RunContext (not Run) and forwards the provided context.
+func TestCLIRunContext_commandV2(t *testing.T) {
+	command := &MockCommandV2{RunContextResult: 42}
+	ctx := context.WithValue(context.Background(), struct{ key string }{"k"}, "v")
+
+	cli := &CLI{
+		Args: []string{"foo", "-bar"},
+		Commands: map[string]CommandFactory{
+			"foo": func() (Command, error) {
+				return command, nil
+			},
+		},
+	}
+
+	exitCode, err := cli.RunContext(ctx)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	if exitCode != 42 {
+		t.Fatalf("bad exit code: got %d, want 42", exitCode)
+	}
+	if !command.RunContextCalled {
+		t.Fatalf("RunContext should have been called on CommandV2")
+	}
+	if command.RunCalled {
+		t.Fatalf("Run should NOT have been called when CommandV2 is implemented")
+	}
+	if command.RunContextCtx != ctx {
+		t.Fatalf("context was not forwarded to RunContext")
+	}
+	if !reflect.DeepEqual(command.RunContextArgs, []string{"-bar"}) {
+		t.Fatalf("bad args: %#v", command.RunContextArgs)
 	}
 }
 
