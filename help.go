@@ -39,8 +39,9 @@ func BasicHelpFunc(app string) HelpFunc {
 			commandFunc, ok := commands[key]
 			if !ok {
 				// This should never happen since we JUST built the list of
-				// keys.
-				panic("command not found: " + key)
+				// keys, but handle it gracefully instead of crashing.
+				log.Printf("[ERR] cli: Command '%s' not found", key)
+				continue
 			}
 
 			command, err := commandFunc()

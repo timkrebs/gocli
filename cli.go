@@ -614,8 +614,10 @@ func (c *CLI) helpCommands(prefix string) map[string]CommandFactory {
 	for _, k := range keys {
 		raw, ok := c.commandTree.Get(k)
 		if !ok {
-			// We just got it via WalkPrefix above, so we just panic
-			panic("not found: " + k)
+			// This should not happen since we just found this key via
+			// WalkPrefix, but handle it gracefully instead of crashing.
+			fmt.Fprintf(c.ErrorWriter, "[ERR] cli: Command '%s' disappeared from tree\n", k)
+			continue
 		}
 
 		// If this is a hidden command, don't show it
