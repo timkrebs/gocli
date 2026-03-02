@@ -1458,7 +1458,9 @@ func TestCLIAutocomplete_subcommandArgs(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.Last, func(t *testing.T) {
 			command := new(MockCommandAutocomplete)
-			command.AutocompleteArgsValue = complete.PredictFiles("*")
+			command.AutocompleteArgsValue = complete.PredictFunc(func(complete.Args) []string {
+				return []string{"README.md"}
+			})
 			command.AutocompleteFlagsValue = map[string]complete.Predictor{
 				"-go": complete.PredictFunc(func(complete.Args) []string {
 					return []string{"yo"}
