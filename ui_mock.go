@@ -77,6 +77,7 @@ func (u *MockUi) Warn(message string) {
 }
 
 func (u *MockUi) init() {
+	u.InputReader = strings.NewReader("")
 	u.ErrorWriter = new(syncBuffer)
 	u.OutputWriter = new(syncBuffer)
 }
@@ -105,12 +106,15 @@ func (b *syncBuffer) Reset() {
 }
 
 func (b *syncBuffer) String() string {
-	return string(b.Bytes())
+	b.RLock()
+	defer b.RUnlock()
+	return b.b.String()
 }
 
 func (b *syncBuffer) Bytes() []byte {
 	b.RLock()
-	data := b.b.Bytes()
-	b.RUnlock()
-	return data
+	defer b.RUnlock()
+	cp := make([]byte, b.b.Len())
+	copy(cp, b.b.Bytes())
+	return cp
 }

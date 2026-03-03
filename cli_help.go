@@ -130,7 +130,12 @@ func (c *CLI) helpCommands(prefix string) map[string]CommandFactory {
 			continue
 		}
 
-		result[k] = raw.(CommandFactory)
+		f, ok := raw.(CommandFactory)
+		if !ok {
+			fmt.Fprintf(c.ErrorWriter, "[ERR] cli: unexpected type for command %q in tree\n", k)
+			continue
+		}
+		result[k] = f
 	}
 
 	return result

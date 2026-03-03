@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -78,8 +77,7 @@ func (c *CLI) processArgs() {
 					// command such as "foo" instead of "foobar", so we
 					// need to verify that we have an entire key. To do that,
 					// we look for an ending in a space or an end of string.
-					reVerify := regexp.MustCompile(regexp.QuoteMeta(k) + `( |$)`)
-					if reVerify.MatchString(searchKey) {
+					if searchKey == k || strings.HasPrefix(searchKey, k+" ") {
 						c.subcommand = k
 						i += strings.Count(k, " ")
 					}

@@ -3,7 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
-	"log"
+	"os"
 	"sort"
 	"strings"
 )
@@ -40,14 +40,13 @@ func BasicHelpFunc(app string) HelpFunc {
 			if !ok {
 				// This should never happen since we JUST built the list of
 				// keys, but handle it gracefully instead of crashing.
-				log.Printf("[ERR] cli: Command '%s' not found", key)
+				fmt.Fprintf(os.Stderr, "[ERR] cli: Command '%s' not found\n", key)
 				continue
 			}
 
 			command, err := commandFunc()
 			if err != nil {
-				log.Printf("[ERR] cli: Command '%s' failed to load: %s",
-					key, err)
+				fmt.Fprintf(os.Stderr, "[ERR] cli: Command '%s' failed to load: %s\n", key, err)
 				continue
 			}
 
@@ -69,9 +68,9 @@ func FilteredHelpFunc(include []string, f HelpFunc) HelpFunc {
 		}
 
 		filtered := make(map[string]CommandFactory)
-		for k, f := range commands {
+		for k, factory := range commands {
 			if _, ok := set[k]; ok {
-				filtered[k] = f
+				filtered[k] = factory
 			}
 		}
 

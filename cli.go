@@ -81,8 +81,22 @@ type CLI struct {
 	// Name defines the name of the CLI.
 	Name string
 
-	// Version of the CLI.
+	// Version of the CLI. Printed as-is when --version is passed.
+	// Use VersionFunc instead when the version string must be computed at
+	// runtime (e.g. from embedded build metadata).
 	Version string
+
+	// VersionFunc is called to obtain the version string when Version is
+	// empty. It is ignored when Version is set. Typical use:
+	//
+	//   var (
+	//       buildVersion = "dev"
+	//       buildCommit  = "none"
+	//   )
+	//   c.VersionFunc = func() string {
+	//       return fmt.Sprintf("%s (%s)", buildVersion, buildCommit)
+	//   }
+	VersionFunc func() string
 
 	// Autocomplete enables or disables subcommand auto-completion support.
 	// This is enabled by default when NewCLI is called. Otherwise, this
@@ -209,9 +223,15 @@ func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	}
 
 	// Just show the version and exit if instructed.
-	if c.IsVersion() && c.Version != "" {
-		c.HelpWriter.Write([]byte(c.Version + "\n"))
-		return 0, nil
+	if c.IsVersion() {
+		version := c.Version
+		if version == "" && c.VersionFunc != nil {
+			version = c.VersionFunc()
+		}
+		if version != "" {
+			c.HelpWriter.Write([]byte(version + "\n"))
+			return 0, nil
+		}
 	}
 
 	// Just print the help when only '-h' or '--help' is passed.
@@ -269,7 +289,11 @@ func (c *CLI) RunContext(ctx context.Context) (int, error) {
 		return 127, nil
 	}
 
-	command, err := raw.(CommandFactory)()
+	factory, ok := raw.(CommandFactory)
+	if !ok {
+		return 1, fmt.Errorf("cli: command %q has unexpected type in registry", c.Subcommand())
+	}
+	command, err := factory()
 	if err != nil {
 		return 1, err
 	}
