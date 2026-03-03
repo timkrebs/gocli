@@ -1564,6 +1564,217 @@ func TestCLIAutocomplete_subcommandArgs(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Alias tests
+// ---------------------------------------------------------------------------
+
+func TestCLIRun_alias(t *testing.T) {
+	command := new(MockCommand)
+	cli := &CLI{
+		Args: []string{"rm", "-f"},
+		Commands: map[string]CommandFactory{
+			"delete": func() (Command, error) { return command, nil },
+		},
+		CommandAliases: map[string]string{
+			"rm": "delete",
+		},
+	}
+
+	code, err := cli.Run()
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	if code != command.RunResult {
+		t.Fatalf("bad exit code: %d", code)
+	}
+	if !command.RunCalled {
+		t.Fatalf("underlying command should have been called via alias")
+	}
+	if !reflect.DeepEqual(command.RunArgs, []string{"-f"}) {
+		t.Fatalf("bad args: %#v", command.RunArgs)
+	}
+}
+
+func TestCLIRun_aliasHiddenFromHelp(t *testing.T) {
+	helpBuf := new(strings.Builder)
+	cli := &CLI{
+		Args: []string{"-h"},
+		Commands: map[string]CommandFactory{
+			"delete": func() (Command, error) { return new(MockCommand), nil },
+		},
+		CommandAliases: map[string]string{"rm": "delete"},
+		HelpFunc:       BasicHelpFunc("app"),
+		HelpWriter:     helpBuf,
+		ErrorWriter:    helpBuf,
+	}
+
+	cli.Run()
+
+	helpText := helpBuf.String()
+	if strings.Contains(helpText, "rm") {
+		t.Fatalf("alias 'rm' should not appear in help output, got:\n%s", helpText)
+	}
+	if !strings.Contains(helpText, "delete") {
+		t.Fatalf("canonical command 'delete' should appear in help output, got:\n%s", helpText)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fuzzy "did you mean" tests
+// ---------------------------------------------------------------------------
+
+func TestCLIRun_didYouMean(t *testing.T) {
+	errBuf := new(strings.Builder)
+	cli := &CLI{
+		Args: []string{"dlete"}, // typo of "delete"
+		Commands: map[string]CommandFactory{
+			"delete": func() (Command, error) { return new(MockCommand), nil },
+		},
+		HelpFunc:    BasicHelpFunc("app"),
+		HelpWriter:  errBuf,
+		ErrorWriter: errBuf,
+	}
+
+	code, err := cli.Run()
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	if code != 127 {
+		t.Fatalf("expected exit 127, got %d", code)
+	}
+	if !strings.Contains(errBuf.String(), "Did you mean") {
+		t.Fatalf("expected 'Did you mean' suggestion, got:\n%s", errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "delete") {
+		t.Fatalf("expected 'delete' in suggestions, got:\n%s", errBuf.String())
+	}
+}
+
+func TestCLIRun_didYouMean_noSuggestionForGarbage(t *testing.T) {
+	errBuf := new(strings.Builder)
+	cli := &CLI{
+		Args: []string{"xyzzy123"}, // nothing close
+		Commands: map[string]CommandFactory{
+			"delete": func() (Command, error) { return new(MockCommand), nil },
+		},
+		HelpFunc:    BasicHelpFunc("app"),
+		HelpWriter:  errBuf,
+		ErrorWriter: errBuf,
+	}
+
+	cli.Run()
+
+	if strings.Contains(errBuf.String(), "Did you mean") {
+		t.Fatalf("should not suggest anything for completely unrelated input, got:\n%s", errBuf.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Hook tests
+// ---------------------------------------------------------------------------
+
+func TestCLIRunContext_beforeRun(t *testing.T) {
+	command := new(MockCommand)
+	var hookName string
+	var hookArgs []string
+
+	cli := &CLI{
+		Args: []string{"foo", "bar"},
+		Commands: map[string]CommandFactory{
+			"foo": func() (Command, error) { return command, nil },
+		},
+		BeforeRun: func(name string, args []string) int {
+			hookName = name
+			hookArgs = args
+			return 0
+		},
+	}
+
+	cli.Run()
+
+	if hookName != "foo" {
+		t.Fatalf("BeforeRun got name %q, want %q", hookName, "foo")
+	}
+	if !reflect.DeepEqual(hookArgs, []string{"bar"}) {
+		t.Fatalf("BeforeRun got args %#v, want [bar]", hookArgs)
+	}
+	if !command.RunCalled {
+		t.Fatalf("command should have run when BeforeRun returns 0")
+	}
+}
+
+func TestCLIRunContext_beforeRun_abort(t *testing.T) {
+	command := new(MockCommand)
+	cli := &CLI{
+		Args: []string{"foo"},
+		Commands: map[string]CommandFactory{
+			"foo": func() (Command, error) { return command, nil },
+		},
+		BeforeRun: func(string, []string) int { return 42 },
+	}
+
+	code, err := cli.Run()
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	if code != 42 {
+		t.Fatalf("expected exit 42 from BeforeRun, got %d", code)
+	}
+	if command.RunCalled {
+		t.Fatalf("command should NOT run when BeforeRun returns non-zero")
+	}
+}
+
+func TestCLIRunContext_afterRun(t *testing.T) {
+	command := &MockCommand{RunResult: 7}
+	var gotName string
+	var gotCode int
+
+	cli := &CLI{
+		Args: []string{"foo", "bar"},
+		Commands: map[string]CommandFactory{
+			"foo": func() (Command, error) { return command, nil },
+		},
+		AfterRun: func(name string, _ []string, exitCode int) {
+			gotName = name
+			gotCode = exitCode
+		},
+	}
+
+	cli.Run()
+
+	if gotName != "foo" {
+		t.Fatalf("AfterRun got name %q, want %q", gotName, "foo")
+	}
+	if gotCode != 7 {
+		t.Fatalf("AfterRun got code %d, want 7", gotCode)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// levenshtein unit tests
+// ---------------------------------------------------------------------------
+
+func TestLevenshtein(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"", "", 0},
+		{"abc", "abc", 0},
+		{"abc", "ab", 1},
+		{"abc", "axc", 1},
+		{"kitten", "sitting", 3},
+		{"delete", "dlete", 1},
+	}
+	for _, tc := range cases {
+		got := levenshtein(tc.a, tc.b)
+		if got != tc.want {
+			t.Errorf("levenshtein(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
 func TestCLISubcommand(t *testing.T) {
 	testCases := []struct {
 		args       []string

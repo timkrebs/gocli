@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"text/template"
@@ -27,26 +24,25 @@ import (
 // If you use a CLI with nested subcommands, some semantics change due to
 // ambiguities:
 //
-//   * We use longest prefix matching to find a matching subcommand. This
+//   - We use longest prefix matching to find a matching subcommand. This
 //     means if you register "foo bar" and the user executes "cli foo qux",
 //     the "foo" command will be executed with the arg "qux". It is up to
 //     you to handle these args. One option is to just return the special
 //     help return code `RunResultHelp` to display help and exit.
 //
-//   * The help flag "-h" or "-help" will look at all args to determine
+//   - The help flag "-h" or "-help" will look at all args to determine
 //     the help function. For example: "otto apps list -h" will show the
 //     help for "apps list" but "otto apps -h" will show it for "apps".
 //     In the normal CLI, only the first subcommand is used.
 //
-//   * The help flag will list any subcommands that a command takes
+//   - The help flag will list any subcommands that a command takes
 //     as well as the command's help itself. If there are no subcommands,
 //     it will note this. If the CLI itself has no subcommands, this entire
 //     section is omitted.
 //
-//   * Any parent commands that don't exist are automatically created as
+//   - Any parent commands that don't exist are automatically created as
 //     no-op commands that just show help for other subcommands. For example,
 //     if you only register "foo bar", then "foo" is automatically created.
-//
 type CLI struct {
 	// Args is the list of command-line arguments received excluding
 	// the name of the app. For example, if the command "./cli foo bar"
@@ -75,6 +71,12 @@ type CLI struct {
 	// show up in autocomplete. The values in the slice should be equivalent
 	// to the keys in the command map.
 	HiddenCommands []string
+
+	// CommandAliases maps alias names to the canonical command name.
+	// Aliases are hidden from help and autocomplete output; they simply
+	// register an alternate invocation for an existing command.
+	// Example: {"rm": "delete"} lets users type either "rm" or "delete".
+	CommandAliases map[string]string
 
 	// Name defines the name of the CLI.
 	Name string
@@ -129,6 +131,18 @@ type CLI struct {
 	// ErrorWriter to os.Stderr.
 	ErrorWriter io.Writer
 
+	// BeforeRun is called before a subcommand is dispatched. A non-zero
+	// return value aborts execution and is returned as the exit code.
+	// BeforeRun is not called when the CLI handles help, version, or
+	// autocomplete flags internally.
+	BeforeRun func(name string, args []string) int
+
+	// AfterRun is called after a subcommand completes, regardless of the
+	// exit code. It receives the subcommand name, its arguments, and the
+	// raw exit code returned by the command (which may be RunResultHelp).
+	// AfterRun is not called when BeforeRun aborts execution.
+	AfterRun func(name string, args []string, exitCode int)
+
 	//---------------------------------------------------------------
 	// Internal fields set automatically
 
@@ -150,7 +164,7 @@ type CLI struct {
 	isAutocompleteUninstall bool
 }
 
-// NewClI returns a new CLI instance with sensible defaults.
+// NewCLI returns a new CLI instance with sensible defaults.
 func NewCLI(app, version string) *CLI {
 	return &CLI{
 		Name:         app,
@@ -158,7 +172,6 @@ func NewCLI(app, version string) *CLI {
 		HelpFunc:     BasicHelpFunc(app),
 		Autocomplete: true,
 	}
-
 }
 
 // IsHelp returns whether or not the help flag is present within the
@@ -246,6 +259,13 @@ func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	raw, ok := c.commandTree.Get(c.Subcommand())
 	if !ok {
 		c.ErrorWriter.Write([]byte(c.HelpFunc(c.helpCommands(c.subcommandParent())) + "\n"))
+		// Suggest close matches to help with typos.
+		if suggestions := c.closestCommands(c.Subcommand(), 3); len(suggestions) > 0 {
+			fmt.Fprintf(c.ErrorWriter, "\nDid you mean one of these?\n")
+			for _, s := range suggestions {
+				fmt.Fprintf(c.ErrorWriter, "    %s\n", s)
+			}
+		}
 		return 127, nil
 	}
 
@@ -269,6 +289,13 @@ func (c *CLI) RunContext(ctx context.Context) (int, error) {
 		return 1, nil
 	}
 
+	// Before-run hook: a non-zero return aborts execution.
+	if c.BeforeRun != nil {
+		if code := c.BeforeRun(c.Subcommand(), c.SubcommandArgs()); code != 0 {
+			return code, nil
+		}
+	}
+
 	// Dispatch to the command. Prefer CommandV2.RunContext when available so
 	// that context cancellation and deadlines are propagated.
 	var code int
@@ -277,6 +304,12 @@ func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	} else {
 		code = command.Run(c.SubcommandArgs())
 	}
+
+	// After-run hook: called with the raw exit code from the command.
+	if c.AfterRun != nil {
+		c.AfterRun(c.Subcommand(), c.SubcommandArgs(), code)
+	}
+
 	if code == RunResultHelp {
 		// Requesting help
 		c.commandHelp(c.ErrorWriter, command)
@@ -398,6 +431,21 @@ func (c *CLI) init() {
 		}
 	}
 
+	// Register command aliases: insert the canonical factory under the alias
+	// key and immediately hide it so it doesn't appear in help or autocomplete.
+	for alias, canonical := range c.CommandAliases {
+		alias = strings.TrimSpace(alias)
+		f, ok := c.Commands[canonical]
+		if !ok {
+			continue // skip aliases pointing to non-existent commands
+		}
+		c.commandTree.Insert(alias, f)
+		if c.commandHidden == nil {
+			c.commandHidden = make(map[string]struct{})
+		}
+		c.commandHidden[alias] = struct{}{}
+	}
+
 	// Cache the sprig template function map once so commandHelp doesn't
 	// rebuild it on every --help invocation.
 	c.helpFuncMap = sprig.TxtFuncMap()
@@ -412,354 +460,3 @@ func (c *CLI) init() {
 	// Process the args
 	c.processArgs()
 }
-
-func (c *CLI) initAutocomplete() {
-	if c.AutocompleteInstall == "" {
-		c.AutocompleteInstall = defaultAutocompleteInstall
-	}
-
-	if c.AutocompleteUninstall == "" {
-		c.AutocompleteUninstall = defaultAutocompleteUninstall
-	}
-
-	if c.autocompleteInstaller == nil {
-		c.autocompleteInstaller = &realAutocompleteInstaller{}
-	}
-
-	// We first set c.autocomplete to a noop autocompleter that outputs
-	// to nul so that we can detect if we're autocompleting or not. If we're
-	// not, then we do nothing. This saves a LOT of compute cycles since
-	// initAutoCompleteSub has to walk every command.
-	c.autocomplete = complete.New(c.Name, complete.Command{})
-	c.autocomplete.Out = ioutil.Discard
-	if !c.autocomplete.Complete() {
-		return
-	}
-
-	// Build the root command
-	cmd := c.initAutocompleteSub("")
-
-	// For the root, we add the global flags to the "Flags". This way
-	// they don't show up on every command.
-	if !c.AutocompleteNoDefaultFlags {
-		cmd.Flags = map[string]complete.Predictor{
-			"-" + c.AutocompleteInstall:   complete.PredictNothing,
-			"-" + c.AutocompleteUninstall: complete.PredictNothing,
-			"-help":                       complete.PredictNothing,
-			"-version":                    complete.PredictNothing,
-		}
-	}
-	cmd.GlobalFlags = c.AutocompleteGlobalFlags
-
-	c.autocomplete = complete.New(c.Name, cmd)
-}
-
-// initAutocompleteSub creates the complete.Command for a subcommand with
-// the given prefix. This will continue recursively for all subcommands.
-// The prefix "" (empty string) can be used for the root command.
-func (c *CLI) initAutocompleteSub(prefix string) complete.Command {
-	var cmd complete.Command
-	walkFn := func(k string, raw interface{}) bool {
-		// Ignore the empty key which can be present for default commands.
-		if k == "" {
-			return false
-		}
-
-		// Keep track of the full key so that we can nest further if necessary
-		fullKey := k
-
-		if len(prefix) > 0 {
-			// If we have a prefix, trim the prefix + 1 (for the space)
-			// Example: turns "sub one" to "one" with prefix "sub"
-			k = k[len(prefix)+1:]
-		}
-
-		if idx := strings.Index(k, " "); idx >= 0 {
-			// If there is a space, we trim up to the space. This turns
-			// "sub sub2 sub3" into "sub". The prefix trim above will
-			// trim our current depth properly.
-			k = k[:idx]
-		}
-
-		if _, ok := cmd.Sub[k]; ok {
-			// If we already tracked this subcommand then ignore
-			return false
-		}
-
-		// If the command is hidden, don't record it at all
-		if _, ok := c.commandHidden[fullKey]; ok {
-			return false
-		}
-
-		if cmd.Sub == nil {
-			cmd.Sub = complete.Commands(make(map[string]complete.Command))
-		}
-		subCmd := c.initAutocompleteSub(fullKey)
-
-		// Instantiate the command so that we can check if the command is
-		// a CommandAutocomplete implementation. If there is an error
-		// creating the command, we just ignore it since that will be caught
-		// later.
-		impl, err := raw.(CommandFactory)()
-		if err != nil {
-			impl = nil
-		}
-
-		// Check if it implements ComandAutocomplete. If so, setup the autocomplete
-		if c, ok := impl.(CommandAutocomplete); ok {
-			subCmd.Args = c.AutocompleteArgs()
-			subCmd.Flags = c.AutocompleteFlags()
-		}
-
-		cmd.Sub[k] = subCmd
-		return false
-	}
-
-	walkPrefix := prefix
-	if walkPrefix != "" {
-		walkPrefix += " "
-	}
-
-	c.commandTree.WalkPrefix(walkPrefix, walkFn)
-	return cmd
-}
-
-func (c *CLI) commandHelp(out io.Writer, command Command) {
-	// Get the template to use
-	tpl := strings.TrimSpace(defaultHelpTemplate)
-	if t, ok := command.(CommandHelpTemplate); ok {
-		tpl = t.HelpTemplate()
-	}
-	if !strings.HasSuffix(tpl, "\n") {
-		tpl += "\n"
-	}
-
-	// Parse it
-	t, err := template.New("root").Funcs(c.helpFuncMap).Parse(tpl)
-	if err != nil {
-		t = template.Must(template.New("root").Parse(fmt.Sprintf(
-			"Internal error! Failed to parse command help template: %s\n", err)))
-	}
-
-	// Template data
-	data := map[string]interface{}{
-		"Name":           c.Name,
-		"SubcommandName": c.Subcommand(),
-		"Help":           command.Help(),
-	}
-
-	// Build subcommand list if we have it
-	var subcommandsTpl []map[string]interface{}
-	if c.commandNested {
-		// Get the matching keys
-		subcommands := c.helpCommands(c.Subcommand())
-		keys := make([]string, 0, len(subcommands))
-		for k := range subcommands {
-			keys = append(keys, k)
-		}
-
-		// Sort the keys
-		sort.Strings(keys)
-
-		// Figure out the padding length
-		var longest int
-		for _, k := range keys {
-			if v := len(k); v > longest {
-				longest = v
-			}
-		}
-
-		// Go through and create their structures
-		subcommandsTpl = make([]map[string]interface{}, 0, len(subcommands))
-		for _, k := range keys {
-			// Get the command
-			raw, ok := subcommands[k]
-			if !ok {
-				c.ErrorWriter.Write([]byte(fmt.Sprintf(
-					"Error getting subcommand %q", k)))
-			}
-			sub, err := raw()
-			if err != nil {
-				c.ErrorWriter.Write([]byte(fmt.Sprintf(
-					"Error instantiating %q: %s", k, err)))
-			}
-
-			// Find the last space and make sure we only include that last part
-			name := k
-			if idx := strings.LastIndex(k, " "); idx > -1 {
-				name = name[idx+1:]
-			}
-
-			subcommandsTpl = append(subcommandsTpl, map[string]interface{}{
-				"Name":        name,
-				"NameAligned": name + strings.Repeat(" ", longest-len(k)),
-				"Help":        sub.Help(),
-				"Synopsis":    sub.Synopsis(),
-			})
-		}
-	}
-	data["Subcommands"] = subcommandsTpl
-
-	// Write
-	err = t.Execute(out, data)
-	if err == nil {
-		return
-	}
-
-	// An error, just output...
-	c.ErrorWriter.Write([]byte(fmt.Sprintf(
-		"Internal error rendering help: %s", err)))
-}
-
-// helpCommands returns the subcommands for the HelpFunc argument.
-// This will only contain immediate subcommands.
-func (c *CLI) helpCommands(prefix string) map[string]CommandFactory {
-	// If our prefix isn't empty, make sure it ends in ' '
-	if prefix != "" && prefix[len(prefix)-1] != ' ' {
-		prefix += " "
-	}
-
-	// Get all the subkeys of this command
-	var keys []string
-	c.commandTree.WalkPrefix(prefix, func(k string, raw interface{}) bool {
-		// Ignore any sub-sub keys, i.e. "foo bar baz" when we want "foo bar"
-		if !strings.Contains(k[len(prefix):], " ") {
-			keys = append(keys, k)
-		}
-
-		return false
-	})
-
-	// For each of the keys return that in the map
-	result := make(map[string]CommandFactory, len(keys))
-	for _, k := range keys {
-		raw, ok := c.commandTree.Get(k)
-		if !ok {
-			// This should not happen since we just found this key via
-			// WalkPrefix, but handle it gracefully instead of crashing.
-			fmt.Fprintf(c.ErrorWriter, "[ERR] cli: Command '%s' disappeared from tree\n", k)
-			continue
-		}
-
-		// If this is a hidden command, don't show it
-		if _, ok := c.commandHidden[k]; ok {
-			continue
-		}
-
-		result[k] = raw.(CommandFactory)
-	}
-
-	return result
-}
-
-func (c *CLI) processArgs() {
-	for i, arg := range c.Args {
-		if arg == "--" {
-			break
-		}
-
-		// Check for help flags.
-		if arg == "-h" || arg == "-help" || arg == "--help" {
-			c.isHelp = true
-			continue
-		}
-
-		// Check for autocomplete flags
-		if c.Autocomplete {
-			if arg == "-"+c.AutocompleteInstall || arg == "--"+c.AutocompleteInstall {
-				c.isAutocompleteInstall = true
-				continue
-			}
-
-			if arg == "-"+c.AutocompleteUninstall || arg == "--"+c.AutocompleteUninstall {
-				c.isAutocompleteUninstall = true
-				continue
-			}
-		}
-
-		if c.subcommand == "" {
-			// Check for version flags if not in a subcommand.
-			if arg == "-v" || arg == "-version" || arg == "--version" {
-				c.isVersion = true
-				continue
-			}
-
-			if arg != "" && arg[0] == '-' {
-				// Record the arg...
-				c.topFlags = append(c.topFlags, arg)
-			}
-		}
-
-		// If we didn't find a subcommand yet and this is the first non-flag
-		// argument, then this is our subcommand.
-		if c.subcommand == "" && arg != "" && arg[0] != '-' {
-			c.subcommand = arg
-			if c.commandNested {
-				// If the command has a space in it, then it is invalid.
-				// Set a blank command so that it fails.
-				if strings.ContainsRune(arg, ' ') {
-					c.subcommand = ""
-					return
-				}
-
-				// Determine the argument we look to to end subcommands.
-				// We look at all arguments until one is a flag or has a space.
-				// This disallows commands like: ./cli foo "bar baz". An
-				// argument with a space is always an argument. A blank
-				// argument is always an argument.
-				j := 0
-				for k, v := range c.Args[i:] {
-					if strings.ContainsRune(v, ' ') || v == "" || v[0] == '-' {
-						break
-					}
-
-					j = i + k + 1
-				}
-
-				// Nested CLI, the subcommand is actually the entire
-				// arg list up to a flag that is still a valid subcommand.
-				searchKey := strings.Join(c.Args[i:j], " ")
-				k, _, ok := c.commandTree.LongestPrefix(searchKey)
-				if ok {
-					// k could be a prefix that doesn't contain the full
-					// command such as "foo" instead of "foobar", so we
-					// need to verify that we have an entire key. To do that,
-					// we look for an ending in a space or an end of string.
-					reVerify := regexp.MustCompile(regexp.QuoteMeta(k) + `( |$)`)
-					if reVerify.MatchString(searchKey) {
-						c.subcommand = k
-						i += strings.Count(k, " ")
-					}
-				}
-			}
-
-			// The remaining args the subcommand arguments
-			c.subcommandArgs = c.Args[i+1:]
-		}
-	}
-
-	// If we never found a subcommand and support a default command, then
-	// switch to using that.
-	if c.subcommand == "" {
-		if _, ok := c.Commands[""]; ok {
-			args := c.topFlags
-			args = append(args, c.subcommandArgs...)
-			c.topFlags = nil
-			c.subcommandArgs = args
-		}
-	}
-}
-
-// defaultAutocompleteInstall and defaultAutocompleteUninstall are the
-// default values for the autocomplete install and uninstall flags.
-const defaultAutocompleteInstall = "autocomplete-install"
-const defaultAutocompleteUninstall = "autocomplete-uninstall"
-
-const defaultHelpTemplate = `
-{{.Help}}{{if gt (len .Subcommands) 0}}
-
-Subcommands:
-{{- range $value := .Subcommands }}
-    {{ $value.NameAligned }}    {{ $value.Synopsis }}{{ end }}
-{{- end }}
-`
