@@ -77,7 +77,9 @@ func (u *MockUi) Warn(message string) {
 }
 
 func (u *MockUi) init() {
-	u.InputReader = strings.NewReader("")
+	if u.InputReader == nil {
+		u.InputReader = strings.NewReader("")
+	}
 	u.ErrorWriter = new(syncBuffer)
 	u.OutputWriter = new(syncBuffer)
 }
