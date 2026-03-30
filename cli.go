@@ -156,7 +156,7 @@ type CLI struct {
 	NoColorFlag string
 
 	// VerbosityFlag is the name of the global --verbose flag. When non-empty,
-	// the CLI also recognises a --quiet flag as the opposite. Both single-hyphen
+	// the CLI also recognizes a --quiet flag as the opposite. Both single-hyphen
 	// and double-hyphen forms are accepted (e.g. -verbose and --verbose).
 	// Set to "" to disable verbosity flags entirely.
 	// Defaults to "verbose" when constructed via NewCLI.
