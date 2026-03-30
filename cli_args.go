@@ -37,6 +37,18 @@ func (c *CLI) processArgs() {
 			}
 		}
 
+		// Check for verbosity flags.
+		if c.VerbosityFlag != "" {
+			if arg == "-"+c.VerbosityFlag || arg == "--"+c.VerbosityFlag {
+				c.isVerbose = true
+				continue
+			}
+			if arg == "-quiet" || arg == "--quiet" {
+				c.isQuiet = true
+				continue
+			}
+		}
+
 		if c.subcommand == "" {
 			// Check for version flags if not in a subcommand.
 			if arg == "-v" || arg == "-version" || arg == "--version" {

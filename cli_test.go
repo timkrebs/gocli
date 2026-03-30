@@ -83,6 +83,46 @@ func TestCLIIsVersion(t *testing.T) {
 	}
 }
 
+func TestCLIVerbosity(t *testing.T) {
+	testCases := []struct {
+		args     []string
+		expected VerbosityLevel
+	}{
+		// Neither flag → normal
+		{[]string{"foo"}, VerbosityNormal},
+		// --verbose / -verbose
+		{[]string{"--verbose"}, VerbosityVerbose},
+		{[]string{"-verbose"}, VerbosityVerbose},
+		{[]string{"--verbose", "foo"}, VerbosityVerbose},
+		{[]string{"foo", "--verbose"}, VerbosityVerbose},
+		// --quiet / -quiet
+		{[]string{"--quiet"}, VerbosityQuiet},
+		{[]string{"-quiet"}, VerbosityQuiet},
+		{[]string{"--quiet", "foo"}, VerbosityQuiet},
+		{[]string{"foo", "--quiet"}, VerbosityQuiet},
+		// After -- separator → not parsed
+		{[]string{"--", "--verbose"}, VerbosityNormal},
+		{[]string{"--", "--quiet"}, VerbosityNormal},
+	}
+
+	for _, tc := range testCases {
+		cli := &CLI{Args: tc.args, VerbosityFlag: "verbose"}
+		result := cli.Verbosity()
+		if result != tc.expected {
+			t.Errorf("args %v: expected verbosity %d, got %d", tc.args, tc.expected, result)
+		}
+	}
+}
+
+func TestCLIVerbosity_Disabled(t *testing.T) {
+	// VerbosityFlag = "" means verbosity flags are disabled; --verbose should
+	// be treated as an unknown top-level flag, not set verbosity.
+	cli := &CLI{Args: []string{"--verbose"}, VerbosityFlag: ""}
+	if cli.Verbosity() != VerbosityNormal {
+		t.Fatalf("expected VerbosityNormal when VerbosityFlag is empty")
+	}
+}
+
 func TestCLIRun(t *testing.T) {
 	command := new(MockCommand)
 	cli := &CLI{
