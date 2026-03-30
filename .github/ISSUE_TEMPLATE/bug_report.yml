@@ -1,0 +1,91 @@
+name: Bug Report
+description: Report a reproducible bug in gocli
+labels: ["bug", "triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug.
+        Please fill in as much detail as possible so we can reproduce and fix it quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug.
+      placeholder: "When I call cli.NewCLI(...) and then..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal reproducer
+      description: |
+        The smallest Go code or failing test that demonstrates the problem.
+        Tip: a failing `go test` snippet is ideal.
+      render: go
+      placeholder: |
+        package main
+
+        import (
+            "fmt"
+            cli "github.com/timkrebs/gocli"
+        )
+
+        func main() {
+            c := cli.NewCLI("app", "1.0.0")
+            // ...
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      placeholder: "I expected the CLI to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      placeholder: "Instead, it..."
+    validations:
+      required: true
+
+  - type: input
+    id: gocli-version
+    attributes:
+      label: gocli version
+      placeholder: "e.g. v0.2.1 or commit SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: Output of `go version`
+      placeholder: "go1.24.1 linux/amd64"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / macOS 15.3 / Windows 11"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Stack traces, screenshots, related issues, etc.
+    validations:
+      required: false

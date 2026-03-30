@@ -1,0 +1,76 @@
+# .goreleaser.yml
+# GoReleaser configuration for gocli — a Go library.
+# Since there are no binaries, we skip the build stage and focus on
+# automated changelog generation and GitHub Release creation.
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+# gocli is a library: there are no executables to build or distribute.
+builds:
+  - skip: true
+
+# Create a source archive so users can download a specific version tarball
+# directly from the GitHub Release page.
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}-{{ .Version }}-source"
+
+# Generate a checksum file for the source archive.
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  abbrev: 7
+  groups:
+    - title: "Breaking Changes"
+      regexp: '^.*(\(.+\))?!:.*$'
+      order: 0
+    - title: "New Features"
+      regexp: '^.*feat(\(.+\))?:.*$'
+      order: 1
+    - title: "Bug Fixes"
+      regexp: '^.*fix(\(.+\))?:.*$'
+      order: 2
+    - title: "Performance"
+      regexp: '^.*perf(\(.+\))?:.*$'
+      order: 3
+    - title: "Documentation"
+      regexp: '^.*docs(\(.+\))?:.*$'
+      order: 4
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - "^chore:"
+      - "^ci:"
+      - "^test:"
+      - "^build:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: timkrebs
+    name: gocli
+  # Draft the release so you can review it before it goes public.
+  # Change to false for fully automated releases.
+  draft: false
+  # Automatically mark pre-release for versions like v1.0.0-beta.1.
+  prerelease: auto
+  name_template: "v{{ .Version }}"
+  header: |
+    ## gocli v{{ .Version }}
+
+    Install or update:
+    ```bash
+    go get github.com/timkrebs/gocli@v{{ .Version }}
+    ```
+  footer: |
+    **Full Changelog**: https://github.com/timkrebs/gocli/compare/{{ .PreviousTag }}...{{ .Tag }}

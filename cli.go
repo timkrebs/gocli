@@ -11,6 +11,7 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/armon/go-radix"
+	"github.com/fatih/color"
 	"github.com/posener/complete"
 )
 
@@ -145,6 +146,15 @@ type CLI struct {
 	// ErrorWriter to os.Stderr.
 	ErrorWriter io.Writer
 
+	// NoColorFlag is the name of the global flag that disables ANSI colour
+	// output. Both the single-hyphen and double-hyphen forms are accepted
+	// (e.g. -no-color and --no-color). Set to "" to disable the flag.
+	// Defaults to "no-color" when constructed via NewCLI.
+	//
+	// The NO_COLOR environment variable (https://no-color.org) is respected
+	// automatically by the underlying colour library regardless of this flag.
+	NoColorFlag string
+
 	// BeforeRun is called before a subcommand is dispatched. A non-zero
 	// return value aborts execution and is returned as the exit code.
 	// BeforeRun is not called when the CLI handles help, version, or
@@ -174,6 +184,7 @@ type CLI struct {
 	// probably use a bitset for this one day.
 	isHelp                  bool
 	isVersion               bool
+	isNoColor               bool
 	isAutocompleteInstall   bool
 	isAutocompleteUninstall bool
 }
@@ -185,6 +196,7 @@ func NewCLI(app, version string) *CLI {
 		Version:      version,
 		HelpFunc:     BasicHelpFunc(app),
 		Autocomplete: true,
+		NoColorFlag:  "no-color",
 	}
 }
 
@@ -213,6 +225,13 @@ func (c *CLI) Run() (int, error) {
 // same behaviour as before.
 func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	c.once.Do(c.init)
+
+	// Disable ANSI colour output when --no-color was passed. This must be
+	// applied before any output is written so that even help/version output
+	// respects the flag.
+	if c.isNoColor {
+		color.NoColor = true
+	}
 
 	// If this is a autocompletion request, satisfy it. This must be called
 	// first before anything else since its possible to be autocompleting
@@ -296,6 +315,13 @@ func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	command, err := factory()
 	if err != nil {
 		return 1, err
+	}
+
+	// Warn the user when the command implements CommandDeprecated.
+	if dep, ok := command.(CommandDeprecated); ok {
+		if msg := dep.DeprecationMessage(); msg != "" {
+			fmt.Fprintf(c.ErrorWriter, "DEPRECATED: %q is deprecated. %s\n\n", c.Subcommand(), msg)
+		}
 	}
 
 	// If we've been instructed to just print the help, then print it
@@ -445,10 +471,7 @@ func (c *CLI) init() {
 		// Insert any that we're missing
 		for k := range toInsert {
 			var f CommandFactory = func() (Command, error) {
-				return &MockCommand{
-					HelpText:  "This command is accessed by using one of the subcommands below.",
-					RunResult: RunResultHelp,
-				}, nil
+				return &noopParentCommand{}, nil
 			}
 
 			c.commandTree.Insert(k, f)

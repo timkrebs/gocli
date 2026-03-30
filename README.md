@@ -101,14 +101,16 @@ Sets sensible defaults: `BasicHelpFunc`, `Autocomplete: true`, `HelpWriter: os.S
 | `CommandAliases` | `map[string]string` | Alias → canonical name mapping |
 | `Name` | `string` | Binary name (required for autocomplete) |
 | `Version` | `string` | Version string printed with `--version` |
+| `VersionFunc` | `func() string` | Called for version when `Version` is empty; ignored when `Version` is set |
 | `HelpFunc` | `HelpFunc` | Top-level help generator |
-| `HelpWriter` | `io.Writer` | Help output destination (recommend `os.Stdout`) |
-| `ErrorWriter` | `io.Writer` | Error output destination (recommend `os.Stderr`) |
+| `HelpWriter` | `io.Writer` | Help output destination (default: `os.Stderr`; recommend `os.Stdout`) |
+| `ErrorWriter` | `io.Writer` | Error output destination (default: same as `HelpWriter`; recommend `os.Stderr`) |
 | `BeforeRun` | `func(name string, args []string) int` | Pre-dispatch hook; non-zero return aborts |
 | `AfterRun` | `func(name string, args []string, exitCode int)` | Post-dispatch hook |
-| `Autocomplete` | `bool` | Enable shell autocomplete |
+| `Autocomplete` | `bool` | Enable shell autocomplete (default `true` via `NewCLI`) |
 | `AutocompleteInstall` | `string` | Flag to install autocomplete (default: `autocomplete-install`) |
-| `AutocompleteUninstall` | `string` | Flag to uninstall autocomplete |
+| `AutocompleteUninstall` | `string` | Flag to uninstall autocomplete (default: `autocomplete-uninstall`) |
+| `AutocompleteNoDefaultFlags` | `bool` | Suppress default `-help` / `-version` flags from autocomplete output |
 | `AutocompleteGlobalFlags` | `complete.Flags` | Global flags exposed to autocomplete |
 
 ### Entrypoints
@@ -620,6 +622,234 @@ func main() {
         log.Println(err)
     }
     os.Exit(exitCode)
+}
+```
+
+## Extending gocli
+
+gocli is built around small, composable interfaces. Extending the framework
+means implementing one or more of these interfaces on your command structs.
+
+### Adding a new command
+
+Implement the `Command` interface and register it in the `Commands` map:
+
+```go
+type BuildCommand struct {
+    Ui cli.Ui
+}
+
+func (c *BuildCommand) Synopsis() string { return "Build the project" }
+
+func (c *BuildCommand) Help() string {
+    return `Usage: myapp build [options]
+
+  Build the project from source.
+
+Options:
+  -o, --output PATH   Write binary to PATH (default: ./bin/myapp)
+  -v, --verbose       Enable verbose output
+`
+}
+
+func (c *BuildCommand) Run(args []string) int {
+    fs := flag.NewFlagSet("build", flag.ContinueOnError)
+    output := fs.String("o", "./bin/myapp", "output path")
+    verbose := fs.Bool("v", false, "verbose output")
+    if err := fs.Parse(args); err != nil {
+        return cli.RunResultHelp
+    }
+
+    c.Ui.Info(fmt.Sprintf("Building → %s", *output))
+    if *verbose {
+        c.Ui.Output("verbose mode enabled")
+    }
+    return 0
+}
+```
+
+Register it:
+
+```go
+c.Commands = map[string]cli.CommandFactory{
+    "build": func() (cli.Command, error) {
+        return &BuildCommand{Ui: ui}, nil
+    },
+}
+```
+
+### Making a command context-aware (CommandV2)
+
+Implement `CommandV2` when a command runs a long-lived process and must
+support cancellation (e.g. via Ctrl-C or a deadline):
+
+```go
+type ServeCommand struct{ Ui cli.Ui }
+
+func (c *ServeCommand) Synopsis() string { return "Run the HTTP server" }
+func (c *ServeCommand) Help() string     { return "Usage: myapp serve [--port PORT]" }
+
+// Run satisfies the plain Command interface and delegates to RunContext.
+func (c *ServeCommand) Run(args []string) int {
+    return c.RunContext(context.Background(), args)
+}
+
+func (c *ServeCommand) RunContext(ctx context.Context, args []string) int {
+    srv := startHTTPServer()
+    c.Ui.Info("server started")
+
+    <-ctx.Done() // blocks until SIGINT, timeout, or parent cancel
+
+    c.Ui.Warn("shutting down…")
+    srv.Shutdown(context.Background())
+    return 0
+}
+```
+
+Wire up signal propagation in `main`:
+
+```go
+ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+defer cancel()
+exitCode, err := c.RunContext(ctx)
+```
+
+### Adding shell autocompletion to a command (CommandAutocomplete)
+
+Implement `CommandAutocomplete` to provide flag and argument completions
+beyond the default subcommand completion:
+
+```go
+type DeployCommand struct{ Ui cli.Ui }
+
+func (c *DeployCommand) AutocompleteArgs() complete.Predictor {
+    // Complete positional args with local directory names
+    return complete.PredictDirs("*")
+}
+
+func (c *DeployCommand) AutocompleteFlags() complete.Flags {
+    return complete.Flags{
+        "--env":     complete.PredictSet("staging", "production"),
+        "--dry-run": complete.PredictNothing,
+        "--tag":     complete.PredictAnything,
+    }
+}
+```
+
+No changes to CLI setup are required — gocli detects the interface automatically.
+
+### Customising per-command help (CommandHelpTemplate)
+
+Implement `CommandHelpTemplate` to control how a command's `--help` output
+is rendered. The template uses `text/template` syntax and all
+[Sprig](https://masterminds.github.io/sprig/) functions are available:
+
+```go
+func (c *DeployCommand) HelpTemplate() string {
+    return `{{ .Help }}
+{{- if gt (len .Subcommands) 0 }}
+
+Subcommands:
+{{ range .Subcommands }}  {{ .NameAligned }}  {{ .Synopsis }}
+{{ end -}}
+{{- end }}
+
+Examples:
+  myapp deploy ./dist --env staging
+  myapp deploy ./dist --env production --dry-run
+`
+}
+```
+
+Available template variables:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `.Name` | `string` | CLI binary name |
+| `.SubcommandName` | `string` | Matched subcommand key |
+| `.Help` | `string` | Output of `command.Help()` |
+| `.Subcommands` | `[]map` | Child subcommands (nested CLIs only) |
+
+Each `.Subcommands` entry has `.Name`, `.NameAligned`, `.Help`, `.Synopsis`.
+
+### Implementing a custom top-level HelpFunc
+
+Replace the default help output entirely:
+
+```go
+c.HelpFunc = func(commands map[string]cli.CommandFactory) string {
+    var b strings.Builder
+    fmt.Fprintf(&b, "myapp %s\n\n", version)
+    fmt.Fprintln(&b, "USAGE")
+    fmt.Fprintf(&b, "  myapp <command> [flags]\n\n")
+    fmt.Fprintln(&b, "COMMANDS")
+    for name, factory := range commands {
+        cmd, _ := factory()
+        fmt.Fprintf(&b, "  %-16s %s\n", name, cmd.Synopsis())
+    }
+    return b.String()
+}
+```
+
+Use `FilteredHelpFunc` to show only a subset of commands in a particular
+context:
+
+```go
+c.HelpFunc = cli.FilteredHelpFunc(
+    []string{"deploy", "rollback", "status"},
+    cli.BasicHelpFunc("myapp"),
+)
+```
+
+### Implementing a custom Ui
+
+Any type that implements the six-method `Ui` interface works as a drop-in:
+
+```go
+type JSONUi struct {
+    enc *json.Encoder
+}
+
+func NewJSONUi(w io.Writer) *JSONUi {
+    return &JSONUi{enc: json.NewEncoder(w)}
+}
+
+func (u *JSONUi) Output(msg string) { u.enc.Encode(map[string]string{"level": "output", "msg": msg}) }
+func (u *JSONUi) Info(msg string)   { u.enc.Encode(map[string]string{"level": "info",   "msg": msg}) }
+func (u *JSONUi) Error(msg string)  { u.enc.Encode(map[string]string{"level": "error",  "msg": msg}) }
+func (u *JSONUi) Warn(msg string)   { u.enc.Encode(map[string]string{"level": "warn",   "msg": msg}) }
+func (u *JSONUi) Ask(q string) (string, error)       { return "", errors.New("interactive input unsupported in JSON mode") }
+func (u *JSONUi) AskSecret(q string) (string, error) { return "", errors.New("interactive input unsupported in JSON mode") }
+```
+
+Wrap it in `ConcurrentUi` when goroutines write to it concurrently:
+
+```go
+ui := &cli.ConcurrentUi{Ui: NewJSONUi(os.Stdout)}
+```
+
+### Using BeforeRun and AfterRun for cross-cutting concerns
+
+These hooks apply to every dispatched command without modifying the
+commands themselves — useful for authentication, logging, and metrics:
+
+```go
+// Authentication gate
+c.BeforeRun = func(name string, args []string) int {
+    if name == "login" {
+        return 0 // login itself must always be reachable
+    }
+    if token := os.Getenv("APP_TOKEN"); token == "" {
+        fmt.Fprintln(os.Stderr, "error: not authenticated — run 'myapp login'")
+        return 1 // non-zero aborts dispatch; AfterRun is NOT called
+    }
+    return 0
+}
+
+// Structured audit log + metrics
+c.AfterRun = func(name string, args []string, exitCode int) {
+    slog.Info("command finished", "cmd", name, "exit", exitCode)
+    metrics.RecordCommand(name, exitCode)
 }
 ```
 

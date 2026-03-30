@@ -1,0 +1,88 @@
+version: "2"
+
+linters:
+  # Start with a minimal set of linters that are well-understood and have
+  # a low false-positive rate. Add more as the codebase matures.
+  default: none
+  enable:
+    # Correctness
+    - govet           # reports suspicious constructs
+    - staticcheck     # comprehensive static analysis (replaces megacheck)
+    - errcheck        # unchecked errors
+    - ineffassign     # assignments that are never used
+    - unused          # unused code (types, functions, variables)
+
+    # Style / quality
+    - revive          # extensible linter, replaces golint
+    - misspell        # common English misspellings in comments/strings
+    - unconvert       # unnecessary type conversions
+    - prealloc        # slice pre-allocation opportunities
+    - tparallel       # missing t.Parallel() in table-driven tests
+
+    # Security
+    - gosec           # common security issues
+
+linters-settings:
+  govet:
+    enable-all: false
+    enable:
+      - shadow        # detect variable shadowing
+
+  revive:
+    severity: warning
+    rules:
+      - name: exported
+        arguments:
+          - "checkPrivateReceivers"
+          - "sayRepetitiveInsteadOfStutters"
+      - name: unexported-return
+      - name: error-return
+      - name: blank-imports
+      - name: context-as-argument
+      - name: dot-imports
+      - name: error-naming
+      - name: increment-decrement
+      - name: var-declaration
+
+  misspell:
+    locale: US
+
+  gosec:
+    excludes:
+      # G304: file path provided as taint input — acceptable in CLI tools
+      # where paths come from the user's own shell environment.
+      - G304
+    severity: medium
+    confidence: medium
+
+  errcheck:
+    # Exclude common write functions where ignoring the error is idiomatic.
+    exclude-functions:
+      - (io.Writer).Write
+      - fmt.Fprint
+      - fmt.Fprintln
+      - fmt.Fprintf
+
+issues:
+  # Show all issues, not just the first 3 per linter per file.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Test files get relaxed rules.
+    - path: "_test\\.go$"
+      linters:
+        - gosec       # test code routinely does unsafe things intentionally
+        - errcheck    # test assertions routinely ignore errors
+        - govet       # shadow detection in tests is too noisy
+
+    # The mock types in command_mock.go set tracking fields (RunCalled, etc.)
+    # that are written but never read within the package itself — they are
+    # consumed by external test code.
+    - path: "command_mock\\.go$"
+      linters:
+        - unused
+
+run:
+  timeout: 5m
+  tests: true

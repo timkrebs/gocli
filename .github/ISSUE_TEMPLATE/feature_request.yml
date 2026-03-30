@@ -1,0 +1,64 @@
+name: Feature Request
+description: Propose a new feature or improvement to gocli
+labels: ["enhancement", "triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a feature request, please search existing issues to
+        avoid duplicates. For large changes, opening an issue first to discuss
+        the design is strongly encouraged before writing code.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: |
+        What problem are you trying to solve? Describe the pain point, not the
+        solution. Good example: "When building a multi-tenant CLI, I have no
+        way to pass a tenant-ID to every subcommand without repeating the flag
+        definition."
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: |
+        Describe the API or behaviour change you have in mind.
+        Include a short Go code snippet if it helps illustrate the idea.
+      render: go
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        What workarounds or alternative approaches have you tried?
+        Why are they insufficient?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: breaking
+    attributes:
+      label: Would this be a breaking change?
+      options:
+        - "No — fully backward compatible"
+        - "Yes — requires a major version bump"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links to related issues, prior art in other CLIs, etc.
+    validations:
+      required: false

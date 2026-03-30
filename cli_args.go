@@ -29,6 +29,14 @@ func (c *CLI) processArgs() {
 			}
 		}
 
+		// Check for the --no-color flag.
+		if c.NoColorFlag != "" {
+			if arg == "-"+c.NoColorFlag || arg == "--"+c.NoColorFlag {
+				c.isNoColor = true
+				continue
+			}
+		}
+
 		if c.subcommand == "" {
 			// Check for version flags if not in a subcommand.
 			if arg == "-v" || arg == "-version" || arg == "--version" {

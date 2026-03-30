@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question / Discussion
+    url: https://github.com/timkrebs/gocli/discussions
+    about: Ask usage questions or discuss ideas in Discussions, not Issues.
+  - name: Security vulnerability
+    url: https://github.com/timkrebs/gocli/security/advisories/new
+    about: Please report security vulnerabilities privately via GitHub's advisory form.

@@ -47,6 +47,9 @@ func (c *CLI) initAutocomplete() {
 			"-help":                       complete.PredictNothing,
 			"-version":                    complete.PredictNothing,
 		}
+		if c.NoColorFlag != "" {
+			cmd.Flags["-"+c.NoColorFlag] = complete.PredictNothing
+		}
 	}
 	cmd.GlobalFlags = c.AutocompleteGlobalFlags
 
