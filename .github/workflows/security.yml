@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           # Use the latest stable Go so govulncheck runs against a fully-patched
           # stdlib. Using go-version-file: go.mod would pin to go 1.23.0 which
