@@ -1,33 +1,27 @@
-version: "2"
+# golangci-lint v1 configuration (installed by golangci/golangci-lint-action@v6).
+# v1 format: top-level linters-settings, disable-all, issues.exclude-rules.
 
 linters:
-  # Start with a minimal set of linters that are well-understood and have
-  # a low false-positive rate. Add more as the codebase matures.
-  default: none
+  disable-all: true
   enable:
     # Correctness
-    - govet           # reports suspicious constructs
-    - staticcheck     # comprehensive static analysis (replaces megacheck)
-    - errcheck        # unchecked errors
-    - ineffassign     # assignments that are never used
-    - unused          # unused code (types, functions, variables)
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
 
     # Style / quality
-    - revive          # extensible linter, replaces golint
-    - misspell        # common English misspellings in comments/strings
-    - unconvert       # unnecessary type conversions
-    - prealloc        # slice pre-allocation opportunities
-    - tparallel       # missing t.Parallel() in table-driven tests
+    - revive
+    - misspell
+    - unconvert
+    - prealloc
+    - tparallel
 
     # Security
-    - gosec           # common security issues
+    - gosec
 
 linters-settings:
-  govet:
-    enable-all: false
-    enable:
-      - shadow        # detect variable shadowing
-
   revive:
     severity: warning
     rules:
@@ -49,14 +43,11 @@ linters-settings:
 
   gosec:
     excludes:
-      # G304: file path provided as taint input — acceptable in CLI tools
-      # where paths come from the user's own shell environment.
-      - G304
+      - G304  # file path from taint input — acceptable in a CLI library
     severity: medium
     confidence: medium
 
   errcheck:
-    # Exclude common write functions where ignoring the error is idiomatic.
     exclude-functions:
       - (io.Writer).Write
       - fmt.Fprint
@@ -64,7 +55,6 @@ linters-settings:
       - fmt.Fprintf
 
 issues:
-  # Show all issues, not just the first 3 per linter per file.
   max-issues-per-linter: 0
   max-same-issues: 0
 
@@ -72,13 +62,12 @@ issues:
     # Test files get relaxed rules.
     - path: "_test\\.go$"
       linters:
-        - gosec       # test code routinely does unsafe things intentionally
-        - errcheck    # test assertions routinely ignore errors
-        - govet       # shadow detection in tests is too noisy
+        - gosec
+        - errcheck
+        - govet
 
-    # The mock types in command_mock.go set tracking fields (RunCalled, etc.)
-    # that are written but never read within the package itself — they are
-    # consumed by external test code.
+    # MockCommand tracking fields (RunCalled, RunArgs, etc.) are written inside
+    # the package but consumed by external test code — unused is a false positive.
     - path: "command_mock\\.go$"
       linters:
         - unused

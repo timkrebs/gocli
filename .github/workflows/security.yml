@@ -26,7 +26,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Use the latest stable Go so govulncheck runs against a fully-patched
+          # stdlib. Using go-version-file: go.mod would pin to go 1.23.0 which
+          # carries GO-2025-3956 (fixed go1.23.12) and GO-2025-3750 (fixed
+          # go1.23.10) — both unrelated to our library code.
+          go-version: stable
           cache: true
 
       - name: Run govulncheck

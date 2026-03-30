@@ -12,7 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go-version: ["1.22.x", "1.23.x", "1.24.x"]
+        # go.mod requires go 1.23.0; GOTOOLCHAIN=local means Go 1.22 refuses
+        # to run this module, so the matrix starts at 1.23.
+        go-version: ["1.23.x", "1.24.x"]
     runs-on: ubuntu-latest
 
     steps:
