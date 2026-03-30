@@ -155,6 +155,16 @@ type CLI struct {
 	// automatically by the underlying color library regardless of this flag.
 	NoColorFlag string
 
+	// VerbosityFlag is the name of the global --verbose flag. When non-empty,
+	// the CLI also recognises a --quiet flag as the opposite. Both single-hyphen
+	// and double-hyphen forms are accepted (e.g. -verbose and --verbose).
+	// Set to "" to disable verbosity flags entirely.
+	// Defaults to "verbose" when constructed via NewCLI.
+	//
+	// Callers can read the active level with [CLI.Verbosity] and wrap their Ui
+	// with [LevelFilterUi] accordingly.
+	VerbosityFlag string
+
 	// BeforeRun is called before a subcommand is dispatched. A non-zero
 	// return value aborts execution and is returned as the exit code.
 	// BeforeRun is not called when the CLI handles help, version, or
@@ -185,6 +195,8 @@ type CLI struct {
 	isHelp                  bool
 	isVersion               bool
 	isNoColor               bool
+	isVerbose               bool
+	isQuiet                 bool
 	isAutocompleteInstall   bool
 	isAutocompleteUninstall bool
 }
@@ -192,11 +204,12 @@ type CLI struct {
 // NewCLI returns a new CLI instance with sensible defaults.
 func NewCLI(app, version string) *CLI {
 	return &CLI{
-		Name:         app,
-		Version:      version,
-		HelpFunc:     BasicHelpFunc(app),
-		Autocomplete: true,
-		NoColorFlag:  "no-color",
+		Name:          app,
+		Version:       version,
+		HelpFunc:      BasicHelpFunc(app),
+		Autocomplete:  true,
+		NoColorFlag:   "no-color",
+		VerbosityFlag: "verbose",
 	}
 }
 
@@ -212,6 +225,25 @@ func (c *CLI) IsHelp() bool {
 func (c *CLI) IsVersion() bool {
 	c.once.Do(c.init)
 	return c.isVersion
+}
+
+// Verbosity returns the active VerbosityLevel derived from the --verbose and
+// --quiet global flags. It returns VerbosityNormal when neither flag was passed.
+//
+// Typical usage: wrap the Ui passed to commands with a [LevelFilterUi] so that
+// --quiet suppresses informational output automatically:
+//
+//	ui = &cli.LevelFilterUi{Level: myCLI.Verbosity(), Ui: ui}
+func (c *CLI) Verbosity() VerbosityLevel {
+	c.once.Do(c.init)
+	switch {
+	case c.isQuiet:
+		return VerbosityQuiet
+	case c.isVerbose:
+		return VerbosityVerbose
+	default:
+		return VerbosityNormal
+	}
 }
 
 // Run runs the actual CLI based on the arguments given.
