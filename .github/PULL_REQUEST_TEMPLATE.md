@@ -14,7 +14,7 @@ Closes #
 
 - [ ] Bug fix (non-breaking change that fixes an issue)
 - [ ] New feature (non-breaking change that adds functionality)
-- [ ] Breaking change (fix or feature that changes existing behaviour)
+- [ ] Breaking change (fix or feature that changes existing behavior)
 - [ ] Refactor (no functional change)
 - [ ] Documentation update
 - [ ] CI / tooling change
@@ -33,7 +33,7 @@ Closes #
 
 <!--
 Describe how you tested this. Include the test names that cover the new
-behaviour, or explain why no new tests were added.
+behavior, or explain why no new tests were added.
 -->
 
 ## Breaking change migration guide

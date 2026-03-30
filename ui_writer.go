@@ -41,7 +41,7 @@ func (w *UiWriter) Write(p []byte) (n int, err error) {
 		w.Ui.Warn(msg)
 	case LevelError:
 		w.Ui.Error(msg)
-	default: // LevelInfo and any unrecognised value
+	default: // LevelInfo and any unrecognized value
 		w.Ui.Info(msg)
 	}
 	return n, nil

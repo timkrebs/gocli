@@ -28,7 +28,7 @@ body:
     attributes:
       label: Proposed solution
       description: |
-        Describe the API or behaviour change you have in mind.
+        Describe the API or behavior change you have in mind.
         Include a short Go code snippet if it helps illustrate the idea.
       render: go
     validations:

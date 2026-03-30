@@ -16,7 +16,7 @@ type UiColor struct {
 
 // A list of colors that are useful. These are all non-bolded by default.
 var (
-	UiColorNone    UiColor = UiColor{noColor, false}
+	UiColorNone = UiColor{noColor, false}
 	UiColorRed             = UiColor{int(color.FgHiRed), false}
 	UiColorGreen           = UiColor{int(color.FgHiGreen), false}
 	UiColorYellow          = UiColor{int(color.FgHiYellow), false}

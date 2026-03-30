@@ -10,7 +10,7 @@ func TestConcurrentUi_impl(t *testing.T) {
 	var _ Ui = new(ConcurrentUi)
 }
 
-// TestConcurrentUi_concurrentWrites verifies that ConcurrentUi serialises
+// TestConcurrentUi_concurrentWrites verifies that ConcurrentUi serializes
 // concurrent calls correctly: no writes are lost and the race detector
 // reports no data races (run with: go test -race).
 func TestConcurrentUi_concurrentWrites(t *testing.T) {

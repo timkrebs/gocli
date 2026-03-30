@@ -146,13 +146,13 @@ type CLI struct {
 	// ErrorWriter to os.Stderr.
 	ErrorWriter io.Writer
 
-	// NoColorFlag is the name of the global flag that disables ANSI colour
+	// NoColorFlag is the name of the global flag that disables ANSI color
 	// output. Both the single-hyphen and double-hyphen forms are accepted
 	// (e.g. -no-color and --no-color). Set to "" to disable the flag.
 	// Defaults to "no-color" when constructed via NewCLI.
 	//
 	// The NO_COLOR environment variable (https://no-color.org) is respected
-	// automatically by the underlying colour library regardless of this flag.
+	// automatically by the underlying color library regardless of this flag.
 	NoColorFlag string
 
 	// BeforeRun is called before a subcommand is dispatched. A non-zero
@@ -222,11 +222,11 @@ func (c *CLI) Run() (int, error) {
 
 // RunContext runs the CLI like Run, but passes ctx to any command that
 // implements CommandV2. Commands that only implement Command receive the
-// same behaviour as before.
+// same behavior as before.
 func (c *CLI) RunContext(ctx context.Context) (int, error) {
 	c.once.Do(c.init)
 
-	// Disable ANSI colour output when --no-color was passed. This must be
+	// Disable ANSI color output when --no-color was passed. This must be
 	// applied before any output is written so that even help/version output
 	// respects the flag.
 	if c.isNoColor {

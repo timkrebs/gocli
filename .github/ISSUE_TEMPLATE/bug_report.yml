@@ -44,7 +44,7 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: Expected behaviour
+      label: Expected behavior
       placeholder: "I expected the CLI to..."
     validations:
       required: true
@@ -52,7 +52,7 @@ body:
   - type: textarea
     id: actual
     attributes:
-      label: Actual behaviour
+      label: Actual behavior
       placeholder: "Instead, it..."
     validations:
       required: true

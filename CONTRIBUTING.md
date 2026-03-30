@@ -22,7 +22,7 @@ report issues, propose features, and submit pull requests.
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
-By participating you agree to uphold it. Report unacceptable behaviour to the
+By participating you agree to uphold it. Report unacceptable behavior to the
 maintainers via a private GitHub message.
 
 ---
@@ -151,7 +151,7 @@ feat!: remove NoopCommand — replaced by noopParentCommand
 
 ## Testing
 
-- All new behaviour must be covered by tests in the same PR.
+- All new behavior must be covered by tests in the same PR.
 - Use the race detector: `go test -race ./...`.
 - Tests must pass on all supported Go versions (see the matrix in `test.yml`).
 - Use `NewMockUi()` (not `new(MockUi)` or `&MockUi{}`) to avoid nil panics.
